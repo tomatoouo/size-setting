@@ -1,6 +1,8 @@
-const MM_TO_INCH = 0.0393701;
-const INCH_TO_MM = 25.4;
+// 单位转换常量
+const MM_TO_INCH = 0.0393701; // 毫米转英寸
+const INCH_TO_MM = 25.4; // 英寸转毫米
 
+// 预设尺寸配置
 const presetSizes = {
     'A4': { width: 210, height: 297 },
     'A3': { width: 297, height: 420 },
@@ -12,38 +14,51 @@ const presetSizes = {
     'Tabloid': { width: 279.4, height: 431.8 }
 };
 
+// 应用状态
 let appState = {
-    canvasWidth: 210,
-    canvasHeight: 297,
-    ppi: 300,
-    colorMode: 'RGB',
-    bgColor: '#ffffff',
-    importedImages: [],
-    placedImages: [],
-    currentImage: null,
-    selectedImage: null
+    canvasWidth: 210, // 画布宽度（毫米）
+    canvasHeight: 297, // 画布高度（毫米）
+    ppi: 300, // 像素每英寸
+    colorMode: 'RGB', // 颜色模式
+    bgColor: '#ffffff', // 背景颜色
+    importedImages: [], // 导入的图片
+    placedImages: [], // 已放置在画布上的图片
+    currentImage: null, // 当前正在处理的图片
+    selectedImage: null, // 当前选中的单个图片
+    selectedImages: [] // 批量选择的图片
 };
 
+// 标注状态
 let annotationState = {
-    isDrawing: false,
-    isDraggingStart: false,
-    isDraggingEnd: false,
-    startPoint: null,
-    endPoint: null,
-    image: null,
-    scale: 1,
-    visualScale: 1,
-    mmPerPixel: 1, // 默认值，避免 NaN
+    isDrawing: false, // 是否正在绘制标注线
+    isDraggingStart: false, // 是否正在拖动起点
+    isDraggingEnd: false, // 是否正在拖动终点
+    startPoint: null, // 标注线起点
+    endPoint: null, // 标注线终点
+    image: null, // 当前标注的图片
+    scale: 1, // 缩放比例
+    visualScale: 1, // 视觉缩放比例
+    mmPerPixel: 1, // 每像素毫米数，默认值，避免 NaN
     // 用于重新标注时保存原图片信息
-    originalPlacedImage: null,
-    isReannotate: false
+    originalPlacedImage: null, // 原始放置的图片
+    isReannotate: false // 是否是重新标注
 };
 
+// 画布状态
 let canvasState = {
-    isDragging: false,
-    dragStart: null,
-    zoom: 1,
-    guideLines: []
+    isDragging: false, // 是否正在拖动
+    dragStart: null, // 拖动开始位置
+    zoom: 1, // 画布缩放比例
+    guideLines: [], // 辅助线
+    // 画布位置（用于拖动）
+    canvasX: 0, // 画布X位置
+    canvasY: 0, // 画布Y位置
+    // 框选相关
+    isSelecting: false, // 是否正在框选
+    selectionStart: null, // 框选开始位置
+    selectionEnd: null, // 框选结束位置
+    // 拖动相关
+    initialPositions: null // 拖动开始时的初始位置
 };
 
 const mainCanvas = document.getElementById('mainCanvas');
@@ -103,17 +118,88 @@ const elements = {
     canvasZoomLevel: document.getElementById('canvasZoomLevel')
 };
 
+/**
+ * 初始化应用
+ */
 function init() {
+    // 设置事件监听器
     setupEventListeners();
+    // 初始化画布
     initCanvas();
+    // 渲染主画布
     renderMainCanvas();
+    // 适配画布大小
     canvasZoomFit();
     // 初始化预设尺寸选择的显示状态
     handlePresetChange();
+    
+    // 检查是否有临时存档，如果有则自动加载
+    const savedData = localStorage.getItem('sizeSettingCanvas');
+    if (savedData) {
+        const data = JSON.parse(savedData);
+        appState.canvasWidth = data.appState.canvasWidth;
+        appState.canvasHeight = data.appState.canvasHeight;
+        appState.ppi = data.appState.ppi;
+        appState.colorMode = data.appState.colorMode;
+        appState.bgColor = data.appState.bgColor;
+        
+        // 更新UI元素
+        elements.canvasWidth.value = appState.canvasWidth;
+        elements.canvasHeight.value = appState.canvasHeight;
+        elements.ppi.value = appState.ppi;
+        elements.colorMode.value = appState.colorMode;
+        elements.bgColor.value = appState.bgColor;
+        
+        // 重新初始化画布
+        initCanvas();
+        
+        // 加载保存的图片
+        appState.placedImages = [];
+        const loadPromises = data.appState.placedImages.map(imgData => {
+            return new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                    resolve({
+                        ...imgData,
+                        image: img
+                    });
+                };
+                img.src = imgData.imageSrc;
+            });
+        });
+        
+        // 所有图片加载完成后
+        Promise.all(loadPromises).then(images => {
+            appState.placedImages = images;
+            renderMainCanvas();
+            canvasZoomFit();
+            
+            // 初始化完成后隐藏loading画面
+            setTimeout(function() {
+                const loading = document.getElementById('loading');
+                if (loading) {
+                    loading.classList.add('hidden');
+                }
+            }, 500);
+        });
+    } else {
+        // 没有临时存档，直接隐藏loading画面
+        setTimeout(function() {
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.classList.add('hidden');
+            }
+        }, 500);
+    }
 }
 
+/**
+ * 设置事件监听器
+ */
 function setupEventListeners() {
+    // 预设尺寸变化
     elements.presetSize.addEventListener('change', handlePresetChange);
+    
     // 自动应用画布设置
     elements.canvasWidth.addEventListener('change', applyCanvasSettings);
     elements.canvasHeight.addEventListener('change', applyCanvasSettings);
@@ -122,27 +208,43 @@ function setupEventListeners() {
     elements.bgColor.addEventListener('change', applyCanvasSettings);
     elements.imageMargin.addEventListener('change', applyCanvasSettings);
     elements.applyCanvasSettings.addEventListener('click', applyCanvasSettings);
+    
+    // 文件选择和拖拽
     elements.fileInput.addEventListener('change', handleFileSelect);
     elements.dropZone.addEventListener('dragover', handleDragOver);
     elements.dropZone.addEventListener('dragleave', handleDragLeave);
     elements.dropZone.addEventListener('drop', handleDrop);
+    
+    // 画布操作
     elements.saveBtn.addEventListener('click', saveCanvas);
     elements.loadBtn.addEventListener('click', loadCanvas);
     elements.clearCanvasBtn.addEventListener('click', clearCanvas);
     elements.arrangeBtn.addEventListener('click', arrangeImages);
+    
+    // JSON导出导入
     elements.exportJsonBtn.addEventListener('click', exportJson);
     elements.loadJsonBtn.addEventListener('click', loadJson);
+    
+    // 图片导出
     elements.exportBtn.addEventListener('click', openExportModal);
+    
+    // 标注相关
     elements.clearAnnotation.addEventListener('click', clearAnnotation);
     elements.cancelAnnotation.addEventListener('click', closeAnnotationModal);
     elements.confirmAnnotation.addEventListener('click', confirmAnnotation);
     elements.closeModal.addEventListener('click', closeAnnotationModal);
+    
+    // 标注画布缩放
     elements.zoomInBtn.addEventListener('click', zoomIn);
     elements.zoomOutBtn.addEventListener('click', zoomOut);
     elements.zoomFit.addEventListener('click', zoomFit);
+    
+    // 主画布缩放
     elements.canvasZoomIn.addEventListener('click', canvasZoomIn);
     elements.canvasZoomOut.addEventListener('click', canvasZoomOut);
     elements.canvasZoomFit.addEventListener('click', canvasZoomFit);
+    
+    // 导出设置
     elements.exportFormat.addEventListener('change', handleExportFormatChange);
     elements.jpegQuality.addEventListener('input', handleQualityChange);
     elements.cancelExport.addEventListener('click', closeExportModal);
@@ -234,7 +336,111 @@ function setupEventListeners() {
     mainCanvas.addEventListener('mouseleave', handleCanvasMouseUp);
     mainCanvas.addEventListener('mouseenter', handleCanvasMouseEnter);
     
+    // 鼠标右键拖动事件
+    mainCanvas.addEventListener('contextmenu', function(e) {
+        e.preventDefault(); // 阻止默认右键菜单
+    });
+    
+    let isCanvasDragging = false;
+    let canvasDragStart = null;
+    
+    mainCanvas.addEventListener('mousedown', function(e) {
+        if (e.button === 2) { // 右键
+            e.preventDefault();
+            isCanvasDragging = true;
+            canvasDragStart = {
+                x: e.clientX - canvasState.canvasX,
+                y: e.clientY - canvasState.canvasY
+            };
+        }
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (isCanvasDragging) {
+            canvasState.canvasX = e.clientX - canvasDragStart.x;
+            canvasState.canvasY = e.clientY - canvasDragStart.y;
+            applyCanvasZoom();
+        }
+    });
+    
+    document.addEventListener('mouseup', function(e) {
+        isCanvasDragging = false;
+    });
+    
+    document.addEventListener('mouseleave', function(e) {
+        isCanvasDragging = false;
+    });
+    
+    // 鼠标滚轮缩放功能
+    mainCanvas.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = Math.max(0.3, Math.min(3, canvasState.zoom * delta));
+        
+        if (newZoom !== canvasState.zoom) {
+            // 计算鼠标在画布上的位置
+            const rect = mainCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 计算缩放前的鼠标在画布坐标系中的位置
+            const oldCanvasX = (mouseX - canvasState.canvasX) / canvasState.zoom;
+            const oldCanvasY = (mouseY - canvasState.canvasY) / canvasState.zoom;
+            
+            // 更新缩放比例
+            canvasState.zoom = newZoom;
+            
+            // 计算缩放后的画布位置，保持鼠标位置不变
+            canvasState.canvasX = mouseX - oldCanvasX * newZoom;
+            canvasState.canvasY = mouseY - oldCanvasY * newZoom;
+            
+            applyCanvasZoom();
+        }
+    });
+    
     imageToolbar.addEventListener('click', handleImageToolbarClick);
+    
+    // 全局点击事件监听器，点击页面其他位置取消选中图片
+    document.addEventListener('click', function(e) {
+        // 检查点击的元素是否是按钮或工具栏
+        const isButton = e.target.closest('button');
+        const isToolbar = e.target.closest('.image-toolbar');
+        const isCanvas = e.target.closest('canvas');
+        
+        // 如果点击的不是按钮、工具栏或画布，取消选中
+        if (!isButton && !isToolbar && !isCanvas) {
+            if (appState.selectedImage) {
+                appState.selectedImage = null;
+                renderMainCanvas();
+                updateToolbarButtons();
+            }
+        }
+    });
+    
+    // 添加键盘delete键快捷键
+    document.addEventListener('keydown', function(e) {
+        // 检查是否按下了delete键
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            // 检查是否有选中的图片
+            const imagesToDelete = appState.selectedImages.length > 0 ? appState.selectedImages : (appState.selectedImage ? [appState.selectedImage] : []);
+            if (imagesToDelete.length > 0) {
+                // 删除所有选中的图片
+                imagesToDelete.forEach(img => {
+                    const index = appState.placedImages.findIndex(i => i.id === img.id);
+                    if (index > -1) {
+                        appState.placedImages.splice(index, 1);
+                    }
+                });
+                // 清空选择
+                appState.selectedImage = null;
+                appState.selectedImages = [];
+                // 重新渲染和更新工具栏
+                renderMainCanvas();
+                updateToolbarButtons();
+            }
+        }
+    });
 }
 
 function handlePresetChange() {
@@ -829,7 +1035,7 @@ function canvasZoomFit() {
 function applyCanvasZoom() {
     const wrapper = document.querySelector('.canvas-wrapper');
     if (wrapper) {
-        wrapper.style.transform = `scale(${canvasState.zoom})`;
+        wrapper.style.transform = `translate(${canvasState.canvasX}px, ${canvasState.canvasY}px) scale(${canvasState.zoom})`;
         wrapper.style.transformOrigin = 'center center';
     }
     elements.canvasZoomLevel.textContent = Math.round(canvasState.zoom * 100) + '%';
@@ -981,7 +1187,8 @@ function renderMainCanvas() {
         mainCtx.drawImage(img.image, img.x, img.y, img.width, img.height);
         
         // 为选中的图片添加边框
-        if (appState.selectedImage && appState.selectedImage.id === img.id) {
+        if ((appState.selectedImage && appState.selectedImage.id === img.id) || 
+            appState.selectedImages.some(selectedImg => selectedImg.id === img.id)) {
             mainCtx.strokeStyle = '#686868ff'; // 蓝色边框
             mainCtx.lineWidth = 10;
             mainCtx.strokeRect(img.x, img.y, img.width, img.height);
@@ -989,6 +1196,22 @@ function renderMainCanvas() {
         
         mainCtx.restore();
     });
+    
+    // 绘制框选区域
+    if (canvasState.isSelecting && canvasState.selectionStart && canvasState.selectionEnd) {
+        const x1 = Math.min(canvasState.selectionStart.x, canvasState.selectionEnd.x);
+        const y1 = Math.min(canvasState.selectionStart.y, canvasState.selectionEnd.y);
+        const width = Math.abs(canvasState.selectionEnd.x - canvasState.selectionStart.x);
+        const height = Math.abs(canvasState.selectionEnd.y - canvasState.selectionStart.y);
+        
+        mainCtx.save();
+        mainCtx.fillStyle = 'rgba(52, 152, 219, 0.2)';
+        mainCtx.strokeStyle = '#3498db';
+        mainCtx.lineWidth = 2;
+        mainCtx.fillRect(x1, y1, width, height);
+        mainCtx.strokeRect(x1, y1, width, height);
+        mainCtx.restore();
+    }
     
     // 绘制辅助线
     drawGuideLines();
@@ -1095,7 +1318,17 @@ function applyColorMode(ctx) {
     }
 }
 
+/**
+ * 处理画布鼠标按下事件
+ * @param {MouseEvent} e - 鼠标事件对象
+ */
 function handleCanvasMouseDown(e) {
+    // 只处理左键点击
+    if (e.button !== 0) {
+        return;
+    }
+    
+    // 计算鼠标在画布上的位置
     const rect = mainCanvas.getBoundingClientRect();
     const scaleX = mainCanvas.width / rect.width;
     const scaleY = mainCanvas.height / rect.height;
@@ -1116,54 +1349,158 @@ function handleCanvasMouseDown(e) {
     }
     
     if (clickedImage) {
-        appState.selectedImage = clickedImage;
+        // 检查点击的图片是否已经被选中
+        const isAlreadySelected = appState.selectedImages.some(img => img.id === clickedImage.id);
+        
+        // 如果按下Shift键，添加到选择列表
+        if (e.shiftKey) {
+            if (!isAlreadySelected) {
+                appState.selectedImages.push(clickedImage);
+                appState.selectedImage = clickedImage;
+            }
+        } else if (!isAlreadySelected) {
+            // 否则，只选择当前图片
+            appState.selectedImage = clickedImage;
+            appState.selectedImages = [clickedImage];
+        }
+        
+        // 开始拖动
         canvasState.isDragging = true;
-        canvasState.dragStart = {
-            x: pos.x - clickedImage.x,
-            y: pos.y - clickedImage.y
-        };
+        // 记录鼠标点击位置
+        canvasState.dragStart = pos;
+        // 记录所有选中图片的初始位置
+        canvasState.initialPositions = [];
+        appState.selectedImages.forEach(img => {
+            canvasState.initialPositions.push({
+                x: img.x,
+                y: img.y
+            });
+        });
+        
+        // 显示工具栏
         showImageToolbar(e, clickedImage.id);
         // 开始拖动时隐藏工具栏
         imageToolbar.classList.add('hidden');
+        // 重新渲染
         renderMainCanvas();
     } else {
+        // 没有点击到图片，开始框选
+        canvasState.isSelecting = true;
+        canvasState.selectionStart = pos;
+        canvasState.selectionEnd = pos;
+        // 清空选择
         appState.selectedImage = null;
+        appState.selectedImages = [];
+        // 重新渲染和更新工具栏
         renderMainCanvas();
         updateToolbarButtons();
     }
 }
 
+/**
+ * 处理画布鼠标移动事件
+ * @param {MouseEvent} e - 鼠标事件对象
+ */
 function handleCanvasMouseMove(e) {
-    if (!canvasState.isDragging || !appState.selectedImage) return;
+    // 处理框选
+    if (canvasState.isSelecting) {
+        // 计算鼠标在画布上的位置
+        const rect = mainCanvas.getBoundingClientRect();
+        const scaleX = mainCanvas.width / rect.width;
+        const scaleY = mainCanvas.height / rect.height;
+        canvasState.selectionEnd = {
+            x: (e.clientX - rect.left) * scaleX,
+            y: (e.clientY - rect.top) * scaleY
+        };
+        // 重新渲染
+        renderMainCanvas();
+        return;
+    }
     
-    const rect = mainCanvas.getBoundingClientRect();
-    const scaleX = mainCanvas.width / rect.width;
-    const scaleY = mainCanvas.height / rect.height;
-    const pos = {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY
-    };
-    
-    appState.selectedImage.x = pos.x - canvasState.dragStart.x;
-    appState.selectedImage.y = pos.y - canvasState.dragStart.y;
-    
-    // 检测辅助线
-    detectGuideLines(appState.selectedImage);
-    
-    // 更新工具栏位置
-    positionImageToolbar();
-    
-    renderMainCanvas();
+    // 处理拖动
+    if (canvasState.isDragging) {
+        // 计算鼠标在画布上的位置
+        const rect = mainCanvas.getBoundingClientRect();
+        const scaleX = mainCanvas.width / rect.width;
+        const scaleY = mainCanvas.height / rect.height;
+        const pos = {
+            x: (e.clientX - rect.left) * scaleX,
+            y: (e.clientY - rect.top) * scaleY
+        };
+        
+        // 计算鼠标移动的距离
+        const dx = pos.x - canvasState.dragStart.x;
+        const dy = pos.y - canvasState.dragStart.y;
+        
+        // 检查是否有选中的图片且记录了初始位置
+        if (appState.selectedImages.length > 0 && canvasState.initialPositions && canvasState.initialPositions.length === appState.selectedImages.length) {
+            // 拖动所有选中的图片
+            appState.selectedImages.forEach((img, index) => {
+                if (canvasState.initialPositions[index]) {
+                    img.x = canvasState.initialPositions[index].x + dx;
+                    img.y = canvasState.initialPositions[index].y + dy;
+                }
+            });
+            
+            // 如果只有一个选中的图片，检测辅助线
+            if (appState.selectedImages.length === 1 && appState.selectedImage) {
+                detectGuideLines(appState.selectedImage);
+            }
+        }
+        
+        // 更新工具栏位置
+        positionImageToolbar();
+        
+        // 重新渲染
+        renderMainCanvas();
+    }
 }
 
+/**
+ * 处理画布鼠标释放事件
+ * @param {MouseEvent} e - 鼠标事件对象
+ */
 function handleCanvasMouseUp(e) {
+    // 结束框选
+    if (canvasState.isSelecting) {
+        canvasState.isSelecting = false;
+        
+        // 计算选择区域
+        const x1 = Math.min(canvasState.selectionStart.x, canvasState.selectionEnd.x);
+        const y1 = Math.min(canvasState.selectionStart.y, canvasState.selectionEnd.y);
+        const x2 = Math.max(canvasState.selectionStart.x, canvasState.selectionEnd.x);
+        const y2 = Math.max(canvasState.selectionStart.y, canvasState.selectionEnd.y);
+        
+        // 检查哪些图片在选择区域内
+        appState.selectedImages = appState.placedImages.filter(img => {
+            // 检查图片是否与选择区域相交
+            return img.x < x2 && img.x + img.width > x1 &&
+                   img.y < y2 && img.y + img.height > y1;
+        });
+        
+        // 如果只选择了一个图片，设置selectedImage
+        if (appState.selectedImages.length === 1) {
+            appState.selectedImage = appState.selectedImages[0];
+        } else {
+            appState.selectedImage = null;
+        }
+        
+        // 更新工具栏
+        updateToolbarButtons();
+    }
+    
+    // 结束拖动
     canvasState.isDragging = false;
     canvasState.guideLines = []; // 清除辅助线
+    canvasState.initialPositions = null; // 重置初始位置
+    
     // 拖动结束时重新显示工具栏
-    if (appState.selectedImage) {
+    if (appState.selectedImage || appState.selectedImages.length > 0) {
         imageToolbar.classList.remove('hidden');
         positionImageToolbar();
     }
+    
+    // 重新渲染
     renderMainCanvas();
 }
 
@@ -1195,10 +1532,17 @@ function hideAllToolbars() {
 
 function updateToolbarButtons() {
     const buttons = imageToolbar.querySelectorAll('.toolbar-btn');
-    const hasSelection = appState.selectedImage !== null;
+    const hasSelection = appState.selectedImage !== null || appState.selectedImages.length > 0;
+    const isMultipleSelection = appState.selectedImages.length > 1;
     
     buttons.forEach(btn => {
         btn.disabled = !hasSelection;
+        // 批量选择时隐藏重新标注按钮
+        if (btn.dataset.action === 'reannotate' && isMultipleSelection) {
+            btn.style.display = 'none';
+        } else {
+            btn.style.display = 'inline-block';
+        }
     });
     
     if (hasSelection) {
@@ -1250,28 +1594,55 @@ function handleImageToolbarClick(e) {
     }
     
     const action = target ? target.dataset.action : null;
-    const imageId = imageToolbar.dataset.imageId;
-    if (!action || !imageId) return;
+    if (!action) return;
     
-    const img = appState.placedImages.find(i => i.id == imageId);
-    if (!img) return;
-    
-    appState.selectedImage = img;
+    // 对所有选中的图片执行操作
+    const imagesToProcess = appState.selectedImages.length > 0 ? appState.selectedImages : (appState.selectedImage ? [appState.selectedImage] : []);
     
     switch(action) {
         case 'delete':
-            deleteSelectedImage();
+            // 删除所有选中的图片
+            imagesToProcess.forEach(img => {
+                const index = appState.placedImages.findIndex(i => i.id === img.id);
+                if (index > -1) {
+                    appState.placedImages.splice(index, 1);
+                }
+            });
             appState.selectedImage = null;
+            appState.selectedImages = [];
             break;
         case 'copy':
-            copySelectedImage();
+            // 复制所有选中的图片
+            imagesToProcess.forEach(img => {
+                const newImage = {
+                    ...img,
+                    id: Date.now() + Math.random(),
+                    name: img.name + ' (副本)',
+                    x: img.x + 20,
+                    y: img.y + 20
+                };
+                appState.placedImages.push(newImage);
+                // 将新复制的图片添加到选择列表
+                appState.selectedImages.push(newImage);
+            });
             break;
         case 'reannotate':
-            reannotateSelectedImage();
-            appState.selectedImage = null;
+            // 重新标注只对单个图片操作
+            if (imagesToProcess.length === 1) {
+                appState.selectedImage = imagesToProcess[0];
+                reannotateSelectedImage();
+                appState.selectedImage = null;
+                appState.selectedImages = [];
+            }
             break;
         case 'rotate':
-            rotateSelectedImage();
+            // 旋转所有选中的图片
+            imagesToProcess.forEach(img => {
+                img.rotation = (img.rotation || 0) + 90;
+                if (img.rotation >= 360) {
+                    img.rotation = 0;
+                }
+            });
             break;
     }
     
@@ -1562,7 +1933,7 @@ function clearCanvas() {
     appState.selectedImage = null;
     renderMainCanvas();
     updateToolbarButtons();
-    alert('画布已清空');
+    // alert('画布已清空');
 }
 
 function arrangeImages() {

@@ -3,34 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>打印尺寸编辑应用</title>
+    <title>图片尺寸编辑</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Font Awesome 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Element UI 样式库 -->
     <link rel="stylesheet" href="https://unpkg.com/element-ui@2.15.13/lib/theme-chalk/index.css">
 </head>
 <body>
+    <!-- Loading 画面 -->
+    <div id="loading" class="loading">
+        <div class="loading-content">
+            <p class="wave-text">
+                <span>加</span>
+                <span>载</span>
+                <span>中</span>
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+            </p>
+        </div>
+    </div>
+
+    <!-- 应用容器 -->
     <div class="app-container">
+        <!-- 头部 -->
         <header>
-            <h1>打印尺寸编辑应用</h1>
+            <h1>图片尺寸编辑</h1>
             <div class="header-actions">
+                <!-- 画布操作按钮 -->
                 <button id="clearCanvasBtn" class="btn btn-danger">清空画布</button>
                 <button id="arrangeBtn" class="btn btn-primary">一键排版</button>
                 <span class="btn-separator"></span>
 
+                <!-- 临时保存按钮 -->
                 <button id="saveBtn" class="btn btn-primary">临时保存</button>
                 <button id="loadBtn" class="btn btn-primary">读取临时保存</button>
                 <span class="btn-separator"></span>
 
+                <!-- JSON导出导入按钮 -->
                 <button id="exportJsonBtn" class="btn btn-primary">导出JSON</button>
                 <button id="loadJsonBtn" class="btn btn-primary">加载JSON</button>
                 <span class="btn-separator"></span>
                 
+                <!-- 图片导出按钮 -->
                 <button id="exportBtn" class="btn btn-primary">导出图片</button>
             </div>
         </header>
 
+        <!-- 主内容区域 -->
         <div class="main-content">
+            <!-- 侧边栏 -->
             <aside class="sidebar">
+                <!-- 画布设置面板 -->
                 <div class="panel" id="canvasSettingsPanel">
                     <h3>画布设置</h3>
                     <div class="form-group">
@@ -83,22 +108,26 @@
                     <button id="applyCanvasSettings" class="btn btn-success" style="display: none;">应用设置</button>
                 </div>
 
+                <!-- 导入图片面板 -->
                 <div class="panel" id="importPanel">
                     <h3>导入图片</h3>
                     <div class="drop-zone" id="dropZone">
-                        <p>拖拽图片到这里<br><br>或</p>
+                        <p>拖拽图片到这里<br><br><span style="color: gray;">或</span></p>
                         <input type="file" id="fileInput" multiple accept="image/*">
                         <label for="fileInput" class="btn btn-plain">选择文件</label>
                     </div>
                 </div>
 
+                <!-- 图片列表面板 -->
                 <div class="panel" id="imageListPanel" style="display: none;">
                     <h3>待确认尺寸后导入的图片</h3>
                     <div id="imageList"></div>
                 </div>
             </aside>
 
+            <!-- 工作区 -->
             <main class="workspace">
+                <!-- 画布控制按钮 -->
                 <div class="canvas-controls" style="position: fixed; top: 80px; right: 20px; background: white; padding: 10px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 100;">
                     <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
                         <button id="canvasZoomOut" class="btn btn-plain" style="width: 30px; height: 30px; font-size: 18px;">-</button>
@@ -109,6 +138,7 @@
                         <i class="fas fa-sync-alt"></i>
                     </button>
                 </div>
+                <!-- 画布容器 -->
                 <div class="canvas-wrapper">
                     <canvas id="mainCanvas"></canvas>
                 </div>
