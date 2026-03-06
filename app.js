@@ -4,6 +4,8 @@ const INCH_TO_MM = 25.4; // 英寸转毫米
 
 // 预设尺寸配置
 const presetSizes = {
+    'A6': { width: 105, height: 148 },
+    'A5': { width: 148, height: 210 },
     'A4': { width: 210, height: 297 },
     'A3': { width: 297, height: 420 },
     'A2': { width: 420, height: 594 },
@@ -149,6 +151,18 @@ function init() {
         elements.ppi.value = appState.ppi;
         elements.colorMode.value = appState.colorMode;
         elements.bgColor.value = appState.bgColor;
+        elements.imageMargin.value = data.appState.imageMargin || 5;
+        
+        // 匹配预设尺寸选择器
+        let matchedPreset = 'custom';
+        for (const [preset, size] of Object.entries(presetSizes)) {
+            if (size.width === appState.canvasWidth && size.height === appState.canvasHeight) {
+                matchedPreset = preset;
+                break;
+            }
+        }
+        elements.presetSize.value = matchedPreset;
+        handlePresetChange();
         
         // 重新初始化画布
         initCanvas();
@@ -183,7 +197,18 @@ function init() {
             }, 500);
         });
     } else {
-        // 没有临时存档，直接隐藏loading画面
+        // 没有临时存档，确保预设尺寸选择器与默认画布尺寸一致
+        let matchedPreset = 'custom';
+        for (const [preset, size] of Object.entries(presetSizes)) {
+            if (size.width === appState.canvasWidth && size.height === appState.canvasHeight) {
+                matchedPreset = preset;
+                break;
+            }
+        }
+        elements.presetSize.value = matchedPreset;
+        handlePresetChange();
+        
+        // 隐藏loading画面
         setTimeout(function() {
             const loading = document.getElementById('loading');
             if (loading) {
@@ -348,6 +373,7 @@ function setupEventListeners() {
         if (e.button === 2) { // 右键
             e.preventDefault();
             isCanvasDragging = true;
+            // 保存鼠标的初始位置（相对于画布的位置）
             canvasDragStart = {
                 x: e.clientX - canvasState.canvasX,
                 y: e.clientY - canvasState.canvasY
@@ -357,8 +383,10 @@ function setupEventListeners() {
     
     document.addEventListener('mousemove', function(e) {
         if (isCanvasDragging) {
+            // 计算画布的新位置
             canvasState.canvasX = e.clientX - canvasDragStart.x;
             canvasState.canvasY = e.clientY - canvasDragStart.y;
+            
             applyCanvasZoom();
         }
     });
@@ -1103,12 +1131,23 @@ function confirmAnnotation() {
     const imageHeightPx = (imageHeightMm / canvasHeightMm) * canvasHeightPx;
     
     // 创建放置到画布的图片对象，保存标注信息
+    let x, y;
+    // 如果是重新标注，保持原图片的位置
+    if (annotationState.isReannotate && annotationState.originalPlacedImage) {
+        x = annotationState.originalPlacedImage.x;
+        y = annotationState.originalPlacedImage.y;
+    } else {
+        // 首次标注，居中显示
+        x = (canvasWidthPx - imageWidthPx) / 2;
+        y = (canvasHeightPx - imageHeightPx) / 2;
+    }
+    
     const placedImg = {
         id: Date.now(),
         name: appState.currentImage.name,
         image: appState.currentImage.image,
-        x: (canvasWidthPx - imageWidthPx) / 2,
-        y: (canvasHeightPx - imageHeightPx) / 2,
+        x: x,
+        y: y,
         width: imageWidthPx,
         height: imageHeightPx,
         // 保存当前PPI值
@@ -1190,7 +1229,11 @@ function renderMainCanvas() {
         if ((appState.selectedImage && appState.selectedImage.id === img.id) || 
             appState.selectedImages.some(selectedImg => selectedImg.id === img.id)) {
             mainCtx.strokeStyle = '#686868ff'; // 蓝色边框
-            mainCtx.lineWidth = 10;
+            // 根据PPI调整边框宽度，保持视觉上的一致性
+            // 基础宽度为1像素，根据PPI缩放
+            const baseWidth = 1;
+            const lineWidth = baseWidth * (appState.ppi / 96); // 以96 PPI为基准
+            mainCtx.lineWidth = lineWidth;
             mainCtx.strokeRect(img.x, img.y, img.width, img.height);
         }
         
@@ -1559,9 +1602,10 @@ function showImageToolbar(e, imageId) {
 }
 
 function positionImageToolbar() {
-    if (!appState.selectedImage) return;
+    // 获取参考图片：如果有单个选中的图片，使用它；否则使用选中列表中的第一张图片
+    const img = appState.selectedImage || (appState.selectedImages.length > 0 ? appState.selectedImages[0] : null);
+    if (!img) return;
     
-    const img = appState.selectedImage;
     const canvasRect = mainCanvas.getBoundingClientRect();
     const canvasScale = mainCanvas.width / canvasRect.width;
     
@@ -1622,8 +1666,6 @@ function handleImageToolbarClick(e) {
                     y: img.y + 20
                 };
                 appState.placedImages.push(newImage);
-                // 将新复制的图片添加到选择列表
-                appState.selectedImages.push(newImage);
             });
             break;
         case 'reannotate':
@@ -1784,6 +1826,7 @@ function saveCanvas() {
             ppi: appState.ppi,
             colorMode: appState.colorMode,
             bgColor: appState.bgColor,
+            imageMargin: parseFloat(elements.imageMargin.value) || 5,
             placedImages: placedImageData
         },
         imageData: mainCanvas.toDataURL('image/png')
@@ -1813,6 +1856,7 @@ function loadCanvas() {
     elements.ppi.value = appState.ppi;
     elements.colorMode.value = appState.colorMode;
     elements.bgColor.value = appState.bgColor;
+    elements.imageMargin.value = data.appState.imageMargin || 5;
     
     initCanvas();
     
