@@ -30,6 +30,13 @@ let appState = {
     selectedImages: [] // 批量选择的图片
 };
 
+// 历史记录栈，用于撤销操作
+let historyStack = [];
+// 回退栈，用于重做操作
+let redoStack = [];
+// 历史记录最大长度
+const MAX_HISTORY_SIZE = 50;
+
 // 标注状态
 let annotationState = {
     isDrawing: false, // 是否正在绘制标注线
@@ -90,6 +97,8 @@ const elements = {
     exportJsonBtn: document.getElementById('exportJsonBtn'),
     loadJsonBtn: document.getElementById('loadJsonBtn'),
     exportBtn: document.getElementById('exportBtn'),
+    undoBtn: document.getElementById('undoBtn'),
+    redoBtn: document.getElementById('redoBtn'),
     annotationModal: document.getElementById('annotationModal'),
     sizeSettingMethod: document.getElementById('sizeSettingMethod'),
     annotationLength: document.getElementById('annotationLength'),
@@ -121,6 +130,132 @@ const elements = {
 };
 
 /**
+ * 保存当前状态到历史栈
+ */
+function saveState() {
+    // 深拷贝当前状态，避免引用问题
+    const stateToSave = {
+        placedImages: JSON.parse(JSON.stringify(appState.placedImages.map(img => ({
+            ...img,
+            // 不保存Image对象，只保存必要的信息
+            imageSrc: img.image.src
+        }))))
+    };
+    
+    // 清空回退栈
+    redoStack = [];
+    
+    // 添加到历史栈
+    historyStack.push(stateToSave);
+    
+    // 如果历史栈超过最大长度，移除最旧的记录
+    if (historyStack.length > MAX_HISTORY_SIZE) {
+        historyStack.shift();
+    }
+    
+    // 更新撤销和回退按钮状态
+    updateUndoRedoButtons();
+}
+
+/**
+ * 撤销操作
+ */
+function undo() {
+    if (historyStack.length > 0) {
+        // 保存当前状态到回退栈
+        redoStack.push({
+            placedImages: JSON.parse(JSON.stringify(appState.placedImages.map(img => ({
+                ...img,
+                imageSrc: img.image.src
+            }))))
+        });
+        
+        // 恢复上一个状态
+        const previousState = historyStack.pop();
+        
+        // 立即更新撤销和回退按钮状态，避免延迟
+        updateUndoRedoButtons();
+        
+        restoreState(previousState);
+    }
+}
+
+/**
+ * 重做操作
+ */
+function redo() {
+    if (redoStack.length > 0) {
+        // 保存当前状态到历史栈
+        historyStack.push({
+            placedImages: JSON.parse(JSON.stringify(appState.placedImages.map(img => ({
+                ...img,
+                imageSrc: img.image.src
+            }))))
+        });
+        
+        // 恢复下一个状态
+        const nextState = redoStack.pop();
+        
+        // 立即更新撤销和回退按钮状态，避免延迟
+        updateUndoRedoButtons();
+        
+        restoreState(nextState);
+    }
+}
+
+/**
+ * 更新撤销和回退按钮的状态
+ */
+function updateUndoRedoButtons() {
+    // 检查是否可以撤销
+    if (historyStack.length > 0) {
+        elements.undoBtn.style.visibility = 'visible';
+        elements.undoBtn.style.pointerEvents = 'auto';
+    } else {
+        elements.undoBtn.style.visibility = 'hidden';
+        elements.undoBtn.style.pointerEvents = 'none';
+    }
+    
+    // 检查是否可以回退
+    if (redoStack.length > 0) {
+        elements.redoBtn.style.visibility = 'visible';
+        elements.redoBtn.style.pointerEvents = 'auto';
+    } else {
+        elements.redoBtn.style.visibility = 'hidden';
+        elements.redoBtn.style.pointerEvents = 'none';
+    }
+}
+
+/**
+ * 恢复状态
+ * @param {Object} state 要恢复的状态
+ */
+function restoreState(state) {
+    // 恢复图片
+    const loadPromises = state.placedImages.map(imgData => {
+        return new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => {
+                resolve({
+                    ...imgData,
+                    image: img
+                });
+            };
+            img.src = imgData.imageSrc;
+        });
+    });
+    
+    Promise.all(loadPromises).then(images => {
+        appState.placedImages = images;
+        appState.selectedImage = null;
+        appState.selectedImages = [];
+        renderMainCanvas();
+        updateToolbarButtons();
+        updateUndoRedoButtons();
+    });
+}
+
+/**
  * 初始化应用
  */
 function init() {
@@ -130,10 +265,13 @@ function init() {
     initCanvas();
     // 渲染主画布
     renderMainCanvas();
-    // 适配画布大小
-    canvasZoomFit();
+    // 延迟适配画布大小，确保DOM完全加载
+    setTimeout(canvasZoomFit, 100);
     // 初始化预设尺寸选择的显示状态
     handlePresetChange();
+    
+    // 初始化撤销和回退按钮状态
+    updateUndoRedoButtons();
     
     // 检查是否有临时存档，如果有则自动加载
     const savedData = localStorage.getItem('sizeSettingCanvas');
@@ -268,6 +406,10 @@ function setupEventListeners() {
     elements.canvasZoomIn.addEventListener('click', canvasZoomIn);
     elements.canvasZoomOut.addEventListener('click', canvasZoomOut);
     elements.canvasZoomFit.addEventListener('click', canvasZoomFit);
+    
+    // 撤销回退按钮
+    elements.undoBtn.addEventListener('click', undo);
+    elements.redoBtn.addEventListener('click', redo);
     
     // 导出设置
     elements.exportFormat.addEventListener('change', handleExportFormatChange);
@@ -453,6 +595,9 @@ function setupEventListeners() {
             // 检查是否有选中的图片
             const imagesToDelete = appState.selectedImages.length > 0 ? appState.selectedImages : (appState.selectedImage ? [appState.selectedImage] : []);
             if (imagesToDelete.length > 0) {
+                // 保存当前状态
+                saveState();
+                
                 // 删除所有选中的图片
                 imagesToDelete.forEach(img => {
                     const index = appState.placedImages.findIndex(i => i.id === img.id);
@@ -1079,6 +1224,9 @@ function clearAnnotation() {
 }
 
 function confirmAnnotation() {
+    // 保存当前状态
+    saveState();
+    
     let imageWidthMm, imageHeightMm, realLengthMm, mmPerPixel;
     const method = elements.sizeSettingMethod.value;
     
@@ -1407,6 +1555,9 @@ function handleCanvasMouseDown(e) {
             appState.selectedImages = [clickedImage];
         }
         
+        // 保存当前状态
+        saveState();
+        
         // 开始拖动
         canvasState.isDragging = true;
         // 记录鼠标点击位置
@@ -1642,6 +1793,9 @@ function handleImageToolbarClick(e) {
     
     // 对所有选中的图片执行操作
     const imagesToProcess = appState.selectedImages.length > 0 ? appState.selectedImages : (appState.selectedImage ? [appState.selectedImage] : []);
+    
+    // 保存当前状态
+    saveState();
     
     switch(action) {
         case 'delete':
@@ -1969,9 +2123,12 @@ function loadJson() {
 }
 
 function clearCanvas() {
-    if (!confirm('确定要清空画布吗？此操作不可恢复。')) {
-        return;
-    }
+    // if (!confirm('确定要清空画布吗？此操作不可恢复。')) {
+    //     return;
+    // }
+    
+    // 保存当前状态
+    saveState();
     
     appState.placedImages = [];
     appState.selectedImage = null;
@@ -1985,6 +2142,9 @@ function arrangeImages() {
         alert('画布上没有图片可排版');
         return;
     }
+    
+    // 保存当前状态
+    saveState();
     
     const canvasWidth = mainCanvas.width;
     const canvasHeight = mainCanvas.height;
