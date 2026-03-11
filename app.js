@@ -1995,10 +1995,15 @@ function loadCanvas() {
         alert('没有找到保存的画布');
         return;
     }
+    
+    // 先解析数据但不修改状态
+    const data = JSON.parse(savedData);
+    
     if (!confirm('加载将覆盖当前画布，确定继续吗？')) {
         return;
     }
-    const data = JSON.parse(savedData);
+    
+    // 只有用户确认后才修改状态
     appState.canvasWidth = data.appState.canvasWidth;
     appState.canvasHeight = data.appState.canvasHeight;
     appState.ppi = data.appState.ppi;
@@ -2011,6 +2016,17 @@ function loadCanvas() {
     elements.colorMode.value = appState.colorMode;
     elements.bgColor.value = appState.bgColor;
     elements.imageMargin.value = data.appState.imageMargin || 5;
+    
+    // 匹配预设尺寸选择器
+    let matchedPreset = 'custom';
+    for (const [preset, size] of Object.entries(presetSizes)) {
+        if (size.width === appState.canvasWidth && size.height === appState.canvasHeight) {
+            matchedPreset = preset;
+            break;
+        }
+    }
+    elements.presetSize.value = matchedPreset;
+    handlePresetChange();
     
     initCanvas();
     
@@ -2073,12 +2089,14 @@ function loadJson() {
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
+                // 先解析数据但不修改状态
                 const data = JSON.parse(event.target.result);
                 
                 if (!confirm('加载将覆盖当前画布，确定继续吗？')) {
                     return;
                 }
                 
+                // 只有用户确认后才修改状态
                 appState.canvasWidth = data.appState.canvasWidth;
                 appState.canvasHeight = data.appState.canvasHeight;
                 appState.ppi = data.appState.ppi;
@@ -2090,6 +2108,18 @@ function loadJson() {
                 elements.ppi.value = appState.ppi;
                 elements.colorMode.value = appState.colorMode;
                 elements.bgColor.value = appState.bgColor;
+                elements.imageMargin.value = data.appState.imageMargin || 5;
+                
+                // 匹配预设尺寸选择器
+                let matchedPreset = 'custom';
+                for (const [preset, size] of Object.entries(presetSizes)) {
+                    if (size.width === appState.canvasWidth && size.height === appState.canvasHeight) {
+                        matchedPreset = preset;
+                        break;
+                    }
+                }
+                elements.presetSize.value = matchedPreset;
+                handlePresetChange();
                 
                 initCanvas();
                 
